@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Chat</title>
+    <style>
+        body {
+            margin: 0;
+            padding-bottom: 3rem;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+
+        .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 90%;
+            margin: 0 auto;
+        }
+
+        .video-container {
+            width: 60%; /* Largura do vídeo */
+        }
+
+        .chat-container {
+            width: 35%; /* Largura do chat */
+            background: rgba(0,0,0,0.15);
+            padding: 0.25rem;
+            box-sizing: border-box;
+            backdrop-filter: blur(10px);
+        }
+
+        #input {
+            border: none;
+            padding: 0 1rem;
+            flex-grow: 1;
+            border-radius: 2rem;
+            margin: 0.25rem;
+        }
+
+        #input:focus{
+            outline: none;
+        }
+
+        #form > button {
+            background: #333;
+            border: none;
+            padding: 0 1rem;
+            margin: 0.25rem;
+            border-radius: 3px;
+            outline: none;
+            color: #fff;
+        }
+
+        #messages {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            overflow-y: scroll; /* Adiciona uma barra de rolagem vertical */
+            max-height: 300px; /* Define a altura máxima para exibir mensagens */
+            border: 1px solid #ccc; /* Adiciona uma borda para melhor visualização */
+            padding: 10px; /* Adiciona um espaçamento interno */
+        }
+
+        #messages > li {
+            padding: 0.5rem 1rem;
+        }
+
+        #messages > li:nth-child(odd) {
+            background: #efefef;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="video-container">
+            <div id="youtubeVideo"></div>
+            <button id="playPauseButton">Play/Pause</button>
+        </div>
+        <div class="url-container">
+            <input id="urlInput" placeholder="Insira a URL do vídeo do YouTube" />
+            <button id="loadVideoButton">Carregar Vídeo</button>
+        </div>
+        <div class="chat-container">
+            <ul id="messages"></ul>
+            <form id="form" action="">
+                <input id="nameInput" placeholder="Seu nome" autocomplete="off" />
+                <input id="input" placeholder="Sua mensagem" autocomplete="off" />
+                <button id="sendMessageButton">Enviar</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        var socket = io();
+        const message = document.getElementById('messages');
+        const input = document.getElementById('input');
+        let isVideoPlaying = false;
+
+        // Evento de envio de mensagem
+        document.getElementById('form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const nameInput = document.getElementById('nameInput');
+            const messageInput = document.getElementById('input');
+
+            const name = nameInput.value.trim(); // Obtendo o nome do input
+            const message = messageInput.value.trim(); // Obtendo a mensagem do input
+
+            if (name && message) {
+                socket.emit('message', {
+                    userName: name, // Enviando o nome do usuário
+                    message: message // Enviando a mensagem
+                });
+                messageInput.value = '';
+            }
+        });
+
+        // Receber e exibir mensagens do chat
+        socket.on('message', (msg) => {
+            const messages = document.getElementById('messages');
+            const li = document.createElement('li');
+            li.textContent = `${msg.userName}: ${msg.message}`;
+            messages.appendChild(li);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        // Evento para carregar o vídeo
+        document.getElementById('loadVideoButton').addEventListener('click', () => {
+            const urlInput = document.getElementById('urlInput');
+            const videoUrl = urlInput.value.trim();
+            if (videoUrl !== '') {
+                socket.emit('videoUrl', videoUrl);
+            }
+        });
+
+        // Evento de controle de play/pause
+        document.getElementById('playPauseButton').addEventListener('click', () => {
+            if (isVideoPlaying) {
+                socket.emit('pauseVideo');
+            } else {
+                socket.emit('playVideo');
+            }
+        });
+
+        // Receber comandos do servidor para controlar o vídeo
+        socket.on('pauseVideo', () => {
+            pauseYouTubeVideo();
+            isVideoPlaying = false;
+        });
+
+        socket.on('playVideo', () => {
+            playYouTubeVideo();
+            isVideoPlaying = true;
+        });
+
+        socket.on('loadVideo', (videoUrl) => {
+            clearYouTubeVideo();
+            loadYouTubeVideo(videoUrl);
+            isVideoPlaying = false; // Garante que o vídeo carregue pausado
+        });
+
+        // Funções para controlar o vídeo
+        function clearYouTubeVideo() {
+            const youtubeVideoContainer = document.getElementById('youtubeVideo');
+            youtubeVideoContainer.innerHTML = '';
+        }
+
+        function loadYouTubeVideo(url) {
+            const videoId = extractYouTubeId(url);
+            if (videoId) {
+                const embedUrl = `https://www.youtube.com/embed/${videoId}`;
+                const youtubeVideoContainer = document.getElementById('youtubeVideo');
+                youtubeVideoContainer.innerHTML = `<iframe width="560" height="315" src="${embedUrl}" frameborder="0" allowfullscreen></iframe>`;
+            } else {
+                console.error('URL do YouTube inválida');
+            }
+        }
+
+        function pauseYouTubeVideo() {
+            const player = document.querySelector('iframe');
+            if (player) {
+                player.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*');
+            }
+        }
+
+        function playYouTubeVideo() {
+            const player = document.querySelector('iframe');
+            if (player) {
+                player.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+            }
+        }
+
+        function extractYouTubeId(url) {
+            const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/ ]{11})/i;
+            const match = url.match(regex);
+            return match && match[1] ? match[1] : null;
+        }
+    </script>
+</body>
+</html>
